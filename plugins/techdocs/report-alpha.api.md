@@ -97,6 +97,29 @@ const _default: FrontendPlugin<
         factory: AnyApiFactory;
       };
     }>;
+    'api:techdocs/addons': ExtensionDefinition<{
+      config: {};
+      configInput: {};
+      output: ConfigurableExtensionDataRef<
+        AnyApiFactory,
+        'core.api.factory',
+        {}
+      >;
+      inputs: {
+        addons: ExtensionInput<
+          ConfigurableExtensionDataRef<JSX.Element[], 'techdocs.addons', {}>,
+          {
+            singleton: false;
+            optional: false;
+          }
+        >;
+      };
+      kind: 'api';
+      name: 'addons';
+      params: {
+        factory: AnyApiFactory;
+      };
+    }>;
     'api:techdocs/storage': ExtensionDefinition<{
       kind: 'api';
       name: 'storage';
@@ -151,6 +174,8 @@ const _default: FrontendPlugin<
       params: SearchResultListItemBlueprintParams;
     }>;
     'page:techdocs/reader': ExtensionDefinition<{
+      kind: 'page';
+      name: 'reader';
       config: {
         path: string | undefined;
       };
@@ -171,49 +196,12 @@ const _default: FrontendPlugin<
               optional: true;
             }
           >;
-      inputs: {
-        addons: ExtensionInput<
-          ConfigurableExtensionDataRef<
-            React_2.JSX.Element,
-            'core.reactElement',
-            {}
-          >,
-          {
-            singleton: true;
-            optional: true;
-          }
-        >;
-      };
-      kind: 'page';
-      name: 'reader';
+      inputs: {};
       params: {
         defaultPath: string;
         loader: () => Promise<JSX.Element>;
         routeRef?: RouteRef<AnyRouteRefParams> | undefined;
       };
-    }>;
-    'addons:techdocs/reader': ExtensionDefinition<{
-      config: {};
-      configInput: {};
-      output: ConfigurableExtensionDataRef<
-        React_2.JSX.Element,
-        'core.reactElement',
-        {
-          optional: true;
-        }
-      >;
-      inputs: {
-        [x: string]: ExtensionInput<
-          AnyExtensionDataRef,
-          {
-            optional: boolean;
-            singleton: boolean;
-          }
-        >;
-      };
-      params: never;
-      kind: 'addons';
-      name: 'reader';
     }>;
     'entity-content:techdocs': ExtensionDefinition<{
       config: {
@@ -260,17 +248,6 @@ const _default: FrontendPlugin<
             }
           >;
       inputs: {
-        addons: ExtensionInput<
-          ConfigurableExtensionDataRef<
-            React_2.JSX.Element,
-            'core.reactElement',
-            {}
-          >,
-          {
-            singleton: true;
-            optional: true;
-          }
-        >;
         emptyState: ExtensionInput<
           ConfigurableExtensionDataRef<
             React_2.JSX.Element,
@@ -294,29 +271,6 @@ const _default: FrontendPlugin<
         routeRef?: RouteRef<AnyRouteRefParams> | undefined;
         filter?: string | ((entity: Entity) => boolean) | undefined;
       };
-    }>;
-    'addons:techdocs/entity-content': ExtensionDefinition<{
-      config: {};
-      configInput: {};
-      output: ConfigurableExtensionDataRef<
-        React_2.JSX.Element,
-        'core.reactElement',
-        {
-          optional: true;
-        }
-      >;
-      inputs: {
-        [x: string]: ExtensionInput<
-          AnyExtensionDataRef,
-          {
-            optional: boolean;
-            singleton: boolean;
-          }
-        >;
-      };
-      params: never;
-      kind: 'addons';
-      name: 'entity-content';
     }>;
     'empty-state:techdocs/entity-content': ExtensionDefinition<{
       config: {};

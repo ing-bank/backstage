@@ -39,7 +39,7 @@ import {
 import { EntityContentBlueprint } from '@backstage/plugin-catalog-react/alpha';
 import { SearchResultListItemBlueprint } from '@backstage/plugin-search-react/alpha';
 import {
-  TechDocsAddons,
+  techDocsAddonsApi,
   techdocsApiRef,
   techdocsStorageApiRef,
 } from '@backstage/plugin-techdocs-react';
@@ -49,7 +49,6 @@ import {
   rootDocsRouteRef,
   rootRouteRef,
 } from './routes';
-import { TechDocsReaderLayout } from './reader';
 
 /** @alpha */
 const techDocsStorageApi = ApiBlueprint.make({
@@ -140,39 +139,16 @@ const techDocsPage = PageBlueprint.make({
  *
  * @alpha
  */
-const techDocsReaderPage = PageBlueprint.makeWithOverrides({
+const techDocsReaderPage = PageBlueprint.make({
   name: 'reader',
-  inputs: {
-    addons: createExtensionInput([coreExtensionData.reactElement], {
-      singleton: true,
-      optional: true,
-    }),
+  params: {
+    defaultPath: '/docs/:namespace/:kind/:name',
+    routeRef: convertLegacyRouteRef(rootDocsRouteRef),
+    loader: () =>
+      import('./reader/components/TechDocsReaderPage').then(m =>
+        compatWrapper(<m.TechDocsReaderPage />),
+      ),
   },
-  factory(originalFactory, { inputs }) {
-    return originalFactory({
-      defaultPath: '/docs/:namespace/:kind/:name',
-      routeRef: convertLegacyRouteRef(rootDocsRouteRef),
-      loader: async () =>
-        await import('./Router').then(({ TechDocsReaderRouter }) => {
-          return compatWrapper(
-            <TechDocsReaderRouter>
-              <TechDocsReaderLayout />
-              <TechDocsAddons>
-                {inputs.addons?.get(coreExtensionData.reactElement)}
-              </TechDocsAddons>
-            </TechDocsReaderRouter>,
-          );
-        }),
-    });
-  },
-});
-
-const techDocsReaderAddonsExtension = createExtension({
-  kind: 'addons',
-  name: 'reader',
-  attachTo: { id: 'page:techdocs/reader', input: 'addons' },
-  output: [coreExtensionData.reactElement.optional()],
-  factory: () => [],
 });
 
 /**
@@ -182,10 +158,6 @@ const techDocsReaderAddonsExtension = createExtension({
  */
 const techDocsEntityContent = EntityContentBlueprint.makeWithOverrides({
   inputs: {
-    addons: createExtensionInput([coreExtensionData.reactElement], {
-      singleton: true,
-      optional: true,
-    }),
     emptyState: createExtensionInput(
       [coreExtensionData.reactElement.optional()],
       {
@@ -207,25 +179,13 @@ const techDocsEntityContent = EntityContentBlueprint.makeWithOverrides({
                 emptyState={context.inputs.emptyState?.get(
                   coreExtensionData.reactElement,
                 )}
-              >
-                <TechDocsAddons>
-                  {context.inputs.addons?.get(coreExtensionData.reactElement)}
-                </TechDocsAddons>
-              </EmbeddedDocsRouter>,
+              />,
             ),
           ),
       },
       context,
     );
   },
-});
-
-const techDocsEntityContentAddonsExtension = createExtension({
-  kind: 'addons',
-  name: 'entity-content',
-  attachTo: { id: 'entity-content:techdocs', input: 'addons' },
-  output: [coreExtensionData.reactElement.optional()],
-  factory: () => [],
 });
 
 const techDocsEntityContentEmptyState = createExtension({
@@ -251,14 +211,13 @@ export default createFrontendPlugin({
   extensions: [
     techDocsClientApi,
     techDocsStorageApi,
+    techDocsAddonsApi,
     techDocsNavItem,
     techDocsPage,
     techDocsReaderPage,
     techDocsEntityContent,
     techDocsEntityContentEmptyState,
     techDocsSearchResultListItemExtension,
-    techDocsReaderAddonsExtension,
-    techDocsEntityContentAddonsExtension,
   ],
   routes: convertLegacyRouteRefs({
     root: rootRouteRef,

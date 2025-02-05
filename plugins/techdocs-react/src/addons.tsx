@@ -15,17 +15,18 @@
  */
 
 import React, { useCallback } from 'react';
-import { useOutlet } from 'react-router-dom';
 
 import {
   attachComponentData,
   createReactExtension,
   ElementCollection,
   Extension,
+  useApi,
   useElementFilter,
 } from '@backstage/core-plugin-api';
 
 import { TechDocsAddonLocations, TechDocsAddonOptions } from './types';
+import { techDocsAddonsApiRef } from './api';
 
 /**
  * Key for each addon.
@@ -123,9 +124,9 @@ const getAllTechDocsAddonsData = (collection: ElementCollection) => {
  * @public
  */
 export const useTechDocsAddons = () => {
-  const node = useOutlet();
-  const collection = useElementFilter(node, getAllTechDocsAddons);
-  const options = useElementFilter(node, getAllTechDocsAddonsData);
+  const addons = useApi(techDocsAddonsApiRef).getTechDocsAddons();
+  const collection = useElementFilter(addons, getAllTechDocsAddons);
+  const options = useElementFilter(addons, getAllTechDocsAddonsData);
 
   const findAddonByData = useCallback(
     (data: TechDocsAddonOptions | undefined) => {

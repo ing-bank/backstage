@@ -28,12 +28,6 @@ import {
   createExtension,
   createFrontendModule,
 } from '@backstage/frontend-plugin-api';
-import {
-  techdocsPlugin,
-  TechDocsIndexPage,
-  TechDocsReaderPage,
-  EntityTechdocsContent,
-} from '@backstage/plugin-techdocs';
 import appVisualizerPlugin from '@backstage/plugin-app-visualizer';
 import { homePage } from './HomePage';
 import { convertLegacyApp } from '@backstage/core-compat-api';
@@ -41,9 +35,13 @@ import { FlatRoutes } from '@backstage/core-app-api';
 import { Route } from 'react-router';
 import { CatalogImportPage } from '@backstage/plugin-catalog-import';
 import kubernetesPlugin from '@backstage/plugin-kubernetes/alpha';
-import { convertLegacyPlugin } from '@backstage/core-compat-api';
-import { convertLegacyPageExtension } from '@backstage/core-compat-api';
-import { convertLegacyEntityContentExtension } from '@backstage/plugin-catalog-react/alpha';
+import { TechDocsAddonsBlueprint } from '@backstage/plugin-techdocs-react';
+import {
+  ExpandableNavigation,
+  ReportIssue,
+  TextSize,
+  LightBox,
+} from '@backstage/plugin-techdocs-module-addons-contrib';
 
 /*
 
@@ -74,23 +72,20 @@ TODO:
 
 /* app.tsx */
 
-/**
- * TechDocs does support the new frontend system so this conversion is not
- * strictly necessary, but it's left here to provide a demo of the utilities for
- * converting legacy plugins.
- */
-const convertedTechdocsPlugin = convertLegacyPlugin(techdocsPlugin, {
-  extensions: [
-    // TODO: We likely also need a way to convert an entire <Route> tree similar to collectLegacyRoutes
-    convertLegacyPageExtension(TechDocsIndexPage, {
-      name: 'index',
-      defaultPath: '/docs',
-    }),
-    convertLegacyPageExtension(TechDocsReaderPage, {
-      defaultPath: '/docs/:namespace/:kind/:name/*',
-    }),
-    convertLegacyEntityContentExtension(EntityTechdocsContent),
-  ],
+const techDocsAddons = TechDocsAddonsBlueprint.make({
+  params: {
+    addons: [
+      <ExpandableNavigation />,
+      <TextSize />,
+      <ReportIssue />,
+      <LightBox />,
+    ],
+  },
+});
+
+const techDocsPlugin = createFrontendModule({
+  pluginId: 'techdocs',
+  extensions: [techDocsAddons],
 });
 
 const customHomePageModule = createFrontendModule({
@@ -124,7 +119,7 @@ const collectedLegacyPlugins = convertLegacyApp(
 const app = createApp({
   features: [
     pagesPlugin,
-    convertedTechdocsPlugin,
+    techDocsPlugin,
     userSettingsPlugin,
     homePlugin,
     appVisualizerPlugin,
