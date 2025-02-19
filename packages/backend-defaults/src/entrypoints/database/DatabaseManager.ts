@@ -28,7 +28,7 @@ import { Knex } from 'knex';
 import { MysqlConnector } from './connectors/mysql';
 import { PgConnector } from './connectors/postgres';
 import { Sqlite3Connector } from './connectors/sqlite3';
-import { Connector } from './types';
+import { Connector, KnexConnectionTypeTransformer } from './types';
 
 /**
  * Provides a config lookup path for a plugin's config block.
@@ -46,6 +46,9 @@ export type DatabaseManagerOptions = {
   migrations?: DatabaseService['migrations'];
   rootLogger?: RootLoggerService;
   rootLifecycle?: RootLifecycleService;
+  connectionTypeTransformers?: {
+    pg?: Record<string, KnexConnectionTypeTransformer>;
+  };
 };
 
 /**
@@ -247,11 +250,16 @@ export class DatabaseManager {
     const databaseConfig = config.getConfig('backend.database');
     const prefix =
       databaseConfig.getOptionalString('prefix') || 'backstage_plugin_';
+
     return new DatabaseManager(
       new DatabaseManagerImpl(
         databaseConfig,
         {
-          pg: new PgConnector(databaseConfig, prefix),
+          pg: new PgConnector(
+            databaseConfig,
+            prefix,
+            options?.connectionTypeTransformers?.pg,
+          ),
           sqlite3: new Sqlite3Connector(databaseConfig),
           'better-sqlite3': new Sqlite3Connector(databaseConfig),
           mysql: new MysqlConnector(databaseConfig, prefix),

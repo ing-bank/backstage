@@ -17,12 +17,12 @@
 import { Config, ConfigReader } from '@backstage/config';
 import {
   buildPgDatabaseConfig,
-  createPgDatabaseClient,
   getPgConnectionConfig,
   parsePgConnectionString,
 } from './postgres';
 
-jest.mock('@google-cloud/cloud-sql-connector');
+import { PgConnector } from './postgres';
+import { KnexConnectionTypeTransformer } from '../types';
 
 describe('postgres', () => {
   const createMockConnection = () => ({
@@ -138,179 +138,17 @@ describe('postgres', () => {
       });
     });
 
-    it('uses the correct config when using cloudsql', async () => {
-      expect(
-        await buildPgDatabaseConfig(
-          new ConfigReader({
-            client: 'pg',
-            connection: {
-              type: 'cloudsql',
-              user: 'ben@gke.com',
-              instance: 'project:region:instance',
-              port: 5423,
-            },
-          }),
-          { connection: { database: 'other_db' } },
-        ),
-      ).toEqual({
-        client: 'pg',
-        connection: {
-          user: 'ben@gke.com',
-          port: 5423,
-          database: 'other_db',
-        },
-        useNullAsDefault: true,
-      });
-    });
-
-    it('should throw with incorrect config', async () => {
+    it('connection.type without throwing an error', async () => {
       await expect(
         buildPgDatabaseConfig(
           new ConfigReader({
             client: 'pg',
             connection: {
-              type: 'cloudsql',
+              type: 'a-type',
             },
           }),
         ),
-      ).rejects.toThrow(/Missing instance connection name for Cloud SQL/);
-
-      await expect(
-        buildPgDatabaseConfig(
-          new ConfigReader({
-            client: 'not-pg',
-            connection: {
-              type: 'cloudsql',
-              instance: 'asd:asd:asd',
-            },
-          }),
-        ),
-      ).rejects.toThrow(/Cloud SQL only supports the pg client/);
-    });
-
-    it('adds the settings from cloud-sql-connector', async () => {
-      const { Connector } = jest.requireMock(
-        '@google-cloud/cloud-sql-connector',
-      ) as jest.Mocked<typeof import('@google-cloud/cloud-sql-connector')>;
-
-      const mockStream = (): any => {};
-      Connector.prototype.getOptions.mockResolvedValue({ stream: mockStream });
-
-      expect(
-        await buildPgDatabaseConfig(
-          new ConfigReader({
-            client: 'pg',
-            connection: {
-              type: 'cloudsql',
-              user: 'ben@gke.com',
-              instance: 'project:region:instance',
-              port: 5423,
-            },
-          }),
-          { connection: { database: 'other_db' } },
-        ),
-      ).toEqual({
-        client: 'pg',
-        connection: {
-          user: 'ben@gke.com',
-          port: 5423,
-          stream: mockStream,
-          database: 'other_db',
-        },
-        useNullAsDefault: true,
-      });
-    });
-
-    it('passes default settings to cloud-sql-connector', async () => {
-      const { Connector } = jest.requireMock(
-        '@google-cloud/cloud-sql-connector',
-      ) as jest.Mocked<typeof import('@google-cloud/cloud-sql-connector')>;
-
-      const mockStream = (): any => {};
-      Connector.prototype.getOptions.mockResolvedValue({ stream: mockStream });
-
-      await buildPgDatabaseConfig(
-        new ConfigReader({
-          client: 'pg',
-          connection: {
-            type: 'cloudsql',
-            user: 'ben@gke.com',
-            instance: 'project:region:instance',
-            port: 5423,
-          },
-        }),
-        { connection: { database: 'other_db' } },
-      );
-
-      expect(Connector.prototype.getOptions).toHaveBeenCalledWith({
-        authType: 'IAM',
-        instanceConnectionName: 'project:region:instance',
-        ipType: 'PUBLIC',
-      });
-    });
-
-    it('passes ip settings to cloud-sql-connector', async () => {
-      const { Connector } = jest.requireMock(
-        '@google-cloud/cloud-sql-connector',
-      ) as jest.Mocked<typeof import('@google-cloud/cloud-sql-connector')>;
-
-      const mockStream = (): any => {};
-      Connector.prototype.getOptions.mockResolvedValue({ stream: mockStream });
-
-      await buildPgDatabaseConfig(
-        new ConfigReader({
-          client: 'pg',
-          connection: {
-            type: 'cloudsql',
-            user: 'ben@gke.com',
-            instance: 'project:region:instance',
-            ipAddressType: 'PRIVATE',
-            port: 5423,
-          },
-        }),
-        { connection: { database: 'other_db' } },
-      );
-
-      expect(Connector.prototype.getOptions).toHaveBeenCalledWith({
-        authType: 'IAM',
-        instanceConnectionName: 'project:region:instance',
-        ipType: 'PRIVATE',
-      });
-    });
-
-    it('throws an error when the connection type is not supported', async () => {
-      await expect(
-        buildPgDatabaseConfig(
-          new ConfigReader({
-            client: 'pg',
-            connection: {
-              type: 'not-supported',
-            },
-          }),
-        ),
-      ).rejects.toThrow('Unknown connection type: not-supported');
-    });
-
-    it('supports default as the default connection type', async () => {
-      await expect(
-        buildPgDatabaseConfig(
-          new ConfigReader({
-            client: 'pg',
-            connection: {
-              type: 'default',
-              port: '5432',
-              database: 'other_db',
-            },
-          }),
-        ),
-      ).resolves.toEqual({
-        client: 'pg',
-        connection: {
-          port: '5432',
-          database: 'other_db',
-        },
-        useNullAsDefault: true,
-      });
+      ).resolves.toHaveProperty('connection.type', 'a-type');
     });
   });
 
@@ -352,31 +190,6 @@ describe('postgres', () => {
     });
   });
 
-  describe('createPgDatabaseClient', () => {
-    it('creates a postgres knex instance', async () => {
-      expect(
-        await createPgDatabaseClient(
-          createConfig({
-            host: 'acme',
-            user: 'foo',
-            password: 'bar',
-            database: 'foodb',
-          }),
-        ),
-      ).toBeTruthy();
-    });
-
-    it('attempts to read an ssl cert', async () => {
-      await expect(() =>
-        createPgDatabaseClient(
-          createConfig(
-            'postgresql://postgres:pass@localhost:5432/dbname?sslrootcert=/path/to/file',
-          ),
-        ),
-      ).rejects.toThrow(/no such file or directory/);
-    });
-  });
-
   describe('parsePgConnectionString', () => {
     it('parses a connection string uri', () => {
       expect(
@@ -390,6 +203,78 @@ describe('postgres', () => {
         port: '5432',
         database: 'dbname',
         ssl: true,
+      });
+    });
+  });
+
+  describe('pgConnector', () => {
+    const rootDbConfig = new ConfigReader({
+      client: 'pg',
+      connection: {},
+    });
+    describe('createPgDatabaseClient', () => {
+      const pgConnector = new PgConnector(rootDbConfig, '');
+      it('creates a postgres knex instance', async () => {
+        expect(
+          await pgConnector.createPgDatabaseClient(
+            createConfig({
+              host: 'acme',
+              user: 'foo',
+              password: 'bar',
+              database: 'foodb',
+            }),
+          ),
+        ).toBeTruthy();
+      });
+
+      it('attempts to read an ssl cert', async () => {
+        await expect(() =>
+          pgConnector.createPgDatabaseClient(
+            createConfig(
+              'postgresql://postgres:pass@localhost:5432/dbname?sslrootcert=/path/to/file',
+            ),
+          ),
+        ).rejects.toThrow(/no such file or directory/);
+      });
+    });
+    describe('createPgDatabaseClient with transformers', () => {
+      const configExistingTransformer = new ConfigReader({
+        client: 'pg',
+        connection: {
+          type: 'a-type',
+        },
+      });
+      const configMissingTransformer = new ConfigReader({
+        client: 'pg',
+        connection: {
+          type: 'no-transformer-for-this-type',
+        },
+      });
+      const configDefaultTransformer = new ConfigReader({
+        client: 'pg',
+        connection: {
+          type: 'default',
+        },
+      });
+      const transformers: Record<string, KnexConnectionTypeTransformer> = {
+        'a-type': jest.fn().mockImplementation(a => a),
+      };
+      const typeTransformerMock = transformers['a-type'] as jest.Mock;
+      const pgConnector = new PgConnector(rootDbConfig, '', transformers);
+      it('calls connection type transformer if connection.type is set', async () => {
+        await pgConnector.createPgDatabaseClient(configExistingTransformer);
+        expect(typeTransformerMock).toHaveBeenCalledTimes(1);
+      });
+      it('throws if connection.type has no transformer', async () => {
+        await expect(() =>
+          pgConnector.createPgDatabaseClient(configMissingTransformer),
+        ).rejects.toThrow(/no transformer for type/);
+      });
+      it('does not throw when type is default', async () => {
+        expect(
+          async () =>
+            await pgConnector.createPgDatabaseClient(configDefaultTransformer),
+        ).not.toThrow();
       });
     });
   });

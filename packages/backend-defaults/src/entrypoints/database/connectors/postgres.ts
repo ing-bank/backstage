@@ -22,7 +22,7 @@ import knexFactory, { Knex } from 'knex';
 import { merge, omit } from 'lodash';
 import limiterFactory from 'p-limit';
 import { Client } from 'pg';
-import { Connector } from '../types';
+import { Connector, KnexConnectionTypeTransformer } from '../types';
 import defaultNameOverride from './defaultNameOverride';
 import defaultSchemaOverride from './defaultSchemaOverride';
 import { mergeDatabaseConfig } from './mergeDatabaseConfig';
@@ -30,33 +30,6 @@ import format from 'pg-format';
 
 // Limits the number of concurrent DDL operations to 1
 const ddlLimiter = limiterFactory(1);
-
-/**
- * Creates a knex postgres database connection
- *
- * @param dbConfig - The database config
- * @param overrides - Additional options to merge with the config
- */
-export async function createPgDatabaseClient(
-  dbConfig: Config,
-  overrides?: Knex.Config,
-) {
-  const knexConfig = await buildPgDatabaseConfig(dbConfig, overrides);
-  const database = knexFactory(knexConfig);
-
-  const role = dbConfig.getOptionalString('role');
-
-  if (role) {
-    database.client.pool.on(
-      'createSuccess',
-      async (_event: number, pgClient: Client) => {
-        const query = format('SET ROLE %I', role);
-        await pgClient.query(query);
-      },
-    );
-  }
-  return database;
-}
 
 /**
  * Builds a knex postgres database connection
@@ -76,49 +49,7 @@ export async function buildPgDatabaseConfig(
     },
     overrides,
   );
-
-  const sanitizedConfig = JSON.parse(JSON.stringify(config));
-
-  // Trim additional properties from the connection object passed to knex
-  delete sanitizedConfig.connection.type;
-  delete sanitizedConfig.connection.instance;
-
-  if (config.connection.type === 'default' || !config.connection.type) {
-    return sanitizedConfig;
-  }
-
-  if (config.connection.type !== 'cloudsql') {
-    throw new Error(`Unknown connection type: ${config.connection.type}`);
-  }
-
-  if (config.client !== 'pg') {
-    throw new Error('Cloud SQL only supports the pg client');
-  }
-
-  if (!config.connection.instance) {
-    throw new Error('Missing instance connection name for Cloud SQL');
-  }
-
-  const {
-    Connector: CloudSqlConnector,
-    IpAddressTypes,
-    AuthTypes,
-  } = require('@google-cloud/cloud-sql-connector') as typeof import('@google-cloud/cloud-sql-connector');
-  const connector = new CloudSqlConnector();
-  const clientOpts = await connector.getOptions({
-    instanceConnectionName: config.connection.instance,
-    ipType: config.connection.ipAddressType ?? IpAddressTypes.PUBLIC,
-    authType: AuthTypes.IAM,
-  });
-
-  return {
-    ...sanitizedConfig,
-    client: 'pg',
-    connection: {
-      ...sanitizedConfig.connection,
-      ...clientOpts,
-    },
-  };
+  return config;
 }
 
 /**
@@ -164,117 +95,6 @@ function requirePgConnectionString() {
 }
 
 /**
- * Creates the missing Postgres database if it does not exist
- *
- * @param dbConfig - The database config
- * @param databases - The name of the databases to create
- */
-export async function ensurePgDatabaseExists(
-  dbConfig: Config,
-  ...databases: Array<string>
-) {
-  const admin = await createPgDatabaseClient(dbConfig, {
-    connection: {
-      database: 'postgres',
-    },
-    pool: {
-      min: 0,
-      acquireTimeoutMillis: 10000,
-    },
-  });
-
-  try {
-    const ensureDatabase = async (database: string) => {
-      const result = await admin
-        .from('pg_database')
-        .where('datname', database)
-        .count<Record<string, { count: string }>>();
-
-      if (parseInt(result[0].count, 10) > 0) {
-        return;
-      }
-
-      await admin.raw(`CREATE DATABASE ??`, [database]);
-    };
-
-    await Promise.all(
-      databases.map(async database => {
-        // For initial setup we use a smaller timeout but several retries. Given that this
-        // is a separate connection pool we should never really run into issues with connection
-        // acquisition timeouts, but we do anyway. This might be a bug in knex or some other dependency.
-        let lastErr: Error | undefined = undefined;
-        for (let i = 0; i < 3; i++) {
-          try {
-            return await ddlLimiter(() => ensureDatabase(database));
-          } catch (err) {
-            lastErr = err;
-          }
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        throw lastErr;
-      }),
-    );
-  } finally {
-    await admin.destroy();
-  }
-}
-
-/**
- * Creates the missing Postgres schema if it does not exist
- *
- * @param dbConfig - The database config
- * @param schemas - The name of the schemas to create
- */
-export async function ensurePgSchemaExists(
-  dbConfig: Config,
-  ...schemas: Array<string>
-): Promise<void> {
-  const admin = await createPgDatabaseClient(dbConfig);
-  const role = dbConfig.getOptionalString('role');
-
-  try {
-    const ensureSchema = async (database: string) => {
-      if (role) {
-        await admin.raw(`CREATE SCHEMA IF NOT EXISTS ?? AUTHORIZATION ??`, [
-          database,
-          role,
-        ]);
-      } else {
-        await admin.raw(`CREATE SCHEMA IF NOT EXISTS ??`, [database]);
-      }
-    };
-
-    await Promise.all(
-      schemas.map(database => ddlLimiter(() => ensureSchema(database))),
-    );
-  } finally {
-    await admin.destroy();
-  }
-}
-
-/**
- * Drops the Postgres databases.
- *
- * @param dbConfig - The database config
- * @param databases - The name of the databases to drop
- */
-export async function dropPgDatabase(
-  dbConfig: Config,
-  ...databases: Array<string>
-) {
-  const admin = await createPgDatabaseClient(dbConfig);
-  try {
-    await Promise.all(
-      databases.map(async database => {
-        await ddlLimiter(() => admin.raw(`DROP DATABASE ??`, [database]));
-      }),
-    );
-  } finally {
-    await admin.destroy();
-  }
-}
-
-/**
  * Provides a config lookup path for a plugin's config block.
  */
 function pluginPath(pluginId: string): string {
@@ -297,6 +117,10 @@ export class PgConnector implements Connector {
   constructor(
     private readonly config: Config,
     private readonly prefix: string,
+    private readonly connectionTransformers: Record<
+      string,
+      KnexConnectionTypeTransformer
+    > = {},
   ) {}
 
   async getClient(
@@ -313,7 +137,7 @@ export class PgConnector implements Connector {
     const databaseName = this.getDatabaseName(pluginId);
     if (databaseName && this.getEnsureExistsConfig(pluginId)) {
       try {
-        await ensurePgDatabaseExists(pluginConfig, databaseName);
+        await this.ensurePgDatabaseExists(pluginConfig, databaseName);
       } catch (error) {
         throw new Error(
           `Failed to connect to the database to make sure that '${databaseName}' exists, ${error}`,
@@ -329,7 +153,7 @@ export class PgConnector implements Connector {
         this.getEnsureExistsConfig(pluginId)
       ) {
         try {
-          await ensurePgSchemaExists(pluginConfig, pluginId);
+          await this.ensurePgSchemaExists(pluginConfig, pluginId);
         } catch (error) {
           throw new Error(
             `Failed to connect to the database to make sure that schema for plugin '${pluginId}' exists, ${error}`,
@@ -344,12 +168,170 @@ export class PgConnector implements Connector {
       schemaOverrides,
     );
 
-    const client = createPgDatabaseClient(
+    const client = this.createPgDatabaseClient(
       pluginConfig,
       databaseClientOverrides,
     );
 
     return client;
+  }
+  /**
+   * Creates a knex postgres database connection
+   *
+   * @param dbConfig - The database config
+   * @param overrides - Additional options to merge with the config
+   */
+  public async createPgDatabaseClient(
+    dbConfig: Config,
+    overrides?: Knex.Config,
+  ) {
+    const knexConfig = (await buildPgDatabaseConfig(
+      dbConfig,
+      overrides,
+    )) as Knex.Config;
+
+    const connectionType = knexConfig.connection
+      ? (knexConfig.connection as any).type
+      : undefined;
+    if (
+      !!knexConfig.connection &&
+      !!connectionType &&
+      connectionType !== 'default'
+    ) {
+      if (!this.connectionTransformers[connectionType]) {
+        throw Error(`no transformer for type ${connectionType}`);
+      }
+
+      knexConfig.connection = await this.connectionTransformers[connectionType](
+        knexConfig.connection,
+      );
+
+      // connection.type is not a Knex Configuration Property
+      // It is only used to select potential configuration transformers
+      delete (knexConfig.connection as any).type;
+    }
+
+    const database = knexFactory(knexConfig);
+
+    const role = dbConfig.getOptionalString('role');
+
+    if (role) {
+      database.client.pool.on(
+        'createSuccess',
+        async (_event: number, pgClient: Client) => {
+          const query = format('SET ROLE %I', role);
+          await pgClient.query(query);
+        },
+      );
+    }
+    return database;
+  }
+  /**
+   * Creates the missing Postgres database if it does not exist
+   *
+   * @param dbConfig - The database config
+   * @param databases - The name of the databases to create
+   */
+  public async ensurePgDatabaseExists(
+    dbConfig: Config,
+    ...databases: Array<string>
+  ) {
+    const admin = await this.createPgDatabaseClient(dbConfig, {
+      connection: {
+        database: 'postgres',
+      },
+      pool: {
+        min: 0,
+        acquireTimeoutMillis: 10000,
+      },
+    });
+
+    try {
+      const ensureDatabase = async (database: string) => {
+        const result = await admin
+          .from('pg_database')
+          .where('datname', database)
+          .count<Record<string, { count: string }>>();
+
+        if (parseInt(result[0].count, 10) > 0) {
+          return;
+        }
+
+        await admin.raw(`CREATE DATABASE ??`, [database]);
+      };
+
+      await Promise.all(
+        databases.map(async database => {
+          // For initial setup we use a smaller timeout but several retries. Given that this
+          // is a separate connection pool we should never really run into issues with connection
+          // acquisition timeouts, but we do anyway. This might be a bug in knex or some other dependency.
+          let lastErr: Error | undefined = undefined;
+          for (let i = 0; i < 3; i++) {
+            try {
+              return await ddlLimiter(() => ensureDatabase(database));
+            } catch (err) {
+              lastErr = err;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          throw lastErr;
+        }),
+      );
+    } finally {
+      await admin.destroy();
+    }
+  }
+
+  /**
+   * Creates the missing Postgres schema if it does not exist
+   *
+   * @param dbConfig - The database config
+   * @param schemas - The name of the schemas to create
+   */
+  public async ensurePgSchemaExists(
+    dbConfig: Config,
+    ...schemas: Array<string>
+  ): Promise<void> {
+    const admin = await this.createPgDatabaseClient(dbConfig);
+    const role = dbConfig.getOptionalString('role');
+
+    try {
+      const ensureSchema = async (database: string) => {
+        if (role) {
+          await admin.raw(`CREATE SCHEMA IF NOT EXISTS ?? AUTHORIZATION ??`, [
+            database,
+            role,
+          ]);
+        } else {
+          await admin.raw(`CREATE SCHEMA IF NOT EXISTS ??`, [database]);
+        }
+      };
+
+      await Promise.all(
+        schemas.map(database => ddlLimiter(() => ensureSchema(database))),
+      );
+    } finally {
+      await admin.destroy();
+    }
+  }
+
+  /**
+   * Drops the Postgres databases.
+   *
+   * @param dbConfig - The database config
+   * @param databases - The name of the databases to drop
+   */
+  public async dropPgDatabase(dbConfig: Config, ...databases: Array<string>) {
+    const admin = await this.createPgDatabaseClient(dbConfig);
+    try {
+      await Promise.all(
+        databases.map(async database => {
+          await ddlLimiter(() => admin.raw(`DROP DATABASE ??`, [database]));
+        }),
+      );
+    } finally {
+      await admin.destroy();
+    }
   }
 
   /**
