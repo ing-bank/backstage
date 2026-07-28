@@ -1,0 +1,59 @@
+{
+  "name": "@backstage/plugin-input-sync-react",
+  "version": "0.1.0",
+  "description": "Web library for the input-sync plugin",
+  "backstage": {
+    "role": "web-library"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "dist/index.esm.js",
+    "types": "dist/index.d.ts"
+  },
+  "private": true,
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "backstage-cli package build",
+    "clean": "backstage-cli package clean",
+    "lint": "backstage-cli package lint",
+    "prepack": "backstage-cli package prepack",
+    "postpack": "backstage-cli package postpack",
+    "start": "backstage-cli package start",
+    "test": "backstage-cli package test"
+  },
+  "dependencies": {
+    "@backstage/core-plugin-api": "workspace:^",
+    "@backstage/plugin-scaffolder-react": "workspace:^",
+    "@backstage/types": "workspace:^",
+    "@rjsf/utils": "5.24.13",
+    "lodash": "^4.17.21",
+    "nunjucks": "^3.2.3",
+    "react-use": "^17.2.4"
+  },
+  "devDependencies": {
+    "@backstage/cli": "workspace:^",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/lodash": "^4.14.151",
+    "@types/nunjucks": "^3.1.4",
+    "@types/react": "^18.0.0",
+    "react": "^18.0.2"
+  },
+  "peerDependencies": {
+    "@types/react": "^17.0.0 || ^18.0.0",
+    "react": "^17.0.0 || ^18.0.0",
+    "react-dom": "^17.0.0 || ^18.0.0",
+    "react-router-dom": "^6.30.2"
+  },
+  "peerDependenciesMeta": {
+    "@types/react": {
+      "optional": true
+    }
+  }
+}

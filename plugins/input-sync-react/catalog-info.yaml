@@ -1,0 +1,10 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: backstage-plugin-input-sync-react
+  title: '@backstage/plugin-input-sync-react'
+  description: Web library for the input-sync plugin
+spec:
+  lifecycle: experimental
+  type: backstage-web-library
+  owner: maintainers
